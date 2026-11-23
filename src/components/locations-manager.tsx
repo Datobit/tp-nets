@@ -15,9 +15,9 @@ import {
 import type { LocationRow } from "@/app/locations/page";
 
 /**
- * Obiekty: dodawanie i edycja (nazwa, adres). Edycja nazwy obiektu, który
- * ma już zlecenia/raporty, zmienia tę nazwę w całej historii — dlatego
- * wymaga potwierdzenia.
+ * Obiekty: dodawanie, edycja (nazwa, adres) i usuwanie (tylko szef; obiekt
+ * z zleceniami nie podlega usunięciu — chroni historię). Edycja nazwy
+ * obiektu z historią wymaga potwierdzenia, bo zmienia ją w raportach.
  */
 export default function LocationsManager({
   locations,
@@ -36,6 +36,7 @@ export default function LocationsManager({
     Record<number, { name: string; address: string }>
   >({});
   const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   async function send(url: string, method: string, body?: unknown) {
     setError(null);
@@ -95,6 +96,17 @@ export default function LocationsManager({
         });
         setConfirmId(null);
       }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteLocation(id: number) {
+    if (busyId) return;
+    setBusyId(`d${id}`);
+    try {
+      await send(`/api/locations/${id}`, "DELETE");
+      setConfirmDeleteId(null);
     } finally {
       setBusyId(null);
     }
@@ -233,18 +245,57 @@ export default function LocationsManager({
                       </div>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        setEditRows((r) => ({
-                          ...r,
-                          [l.id]: { name: l.name, address: l.address },
-                        }))
-                      }
-                    >
-                      Edytuj obiekt
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setEditRows((r) => ({
+                              ...r,
+                              [l.id]: { name: l.name, address: l.address },
+                            }))
+                          }
+                        >
+                          Edytuj obiekt
+                        </Button>
+                        {l.orders_count === 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-destructive"
+                            disabled={busyId === `d${l.id}`}
+                            onClick={() => setConfirmDeleteId(l.id)}
+                          >
+                            Usuń obiekt
+                          </Button>
+                        )}
+                      </div>
+                      {confirmDeleteId === l.id && (
+                        <div className="flex flex-col gap-1">
+                          <p className="text-sm">
+                            Trwale usunąć obiekt „{l.name}” wraz z kontaktami?
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={busyId === `d${l.id}`}
+                              onClick={() => deleteLocation(l.id)}
+                            >
+                              {busyId === `d${l.id}` ? "Usuwanie…" : "Tak, usuń trwale"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setConfirmDeleteId(null)}
+                            >
+                              Anuluj
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </CardContent>
               </Card>

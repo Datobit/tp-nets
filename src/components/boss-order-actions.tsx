@@ -18,8 +18,12 @@ export function BossOrderActions({
   const [title, setTitle] = useState(currentTitle);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  async function send(action: "rename" | "close", payload?: { title: string }) {
+  async function send(
+    action: "rename" | "close" | "delete",
+    payload?: { title: string }
+  ) {
     if (busy) return;
     setError(null);
     setBusy(true);
@@ -32,6 +36,11 @@ export function BossOrderActions({
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
         setError(data?.error ?? "Operacja nie powiodła się.");
+        return;
+      }
+      if (action === "delete") {
+        router.push("/orders");
+        router.refresh();
         return;
       }
       setEditing(false);
@@ -53,7 +62,32 @@ export function BossOrderActions({
           {error}
         </div>
       )}
-      {editing ? (
+      {confirmingDelete ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm">
+            Trwale usunąć zlecenie razem z jego raportami? Operacji nie można
+            cofnąć.
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={() => send("delete")}
+            >
+              {busy ? "Usuwanie…" : "Tak, usuń trwale"}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setConfirmingDelete(false)}
+            >
+              Anuluj
+            </Button>
+          </div>
+        </div>
+      ) : editing ? (
         <div className="flex items-center gap-2">
           <Input
             value={title}
@@ -92,6 +126,15 @@ export function BossOrderActions({
             onClick={() => send("close")}
           >
             Zamknij zlecenie
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-destructive"
+            disabled={busy}
+            onClick={() => setConfirmingDelete(true)}
+          >
+            Usuń zlecenie
           </Button>
         </div>
       )}

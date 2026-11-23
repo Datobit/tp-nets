@@ -94,7 +94,7 @@ export async function listReports(): Promise<ReportListItem[]> {
             o.title AS order_title,
             l.name AS location_name,
             r.description,
-            (SELECT array_agg(e.last_name || ' ' || e.first_name ORDER BY e.last_name, e.first_name)
+            (SELECT array_agg(e.first_name ORDER BY e.first_name)
              FROM report_employees re
              JOIN employees e ON e.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees
@@ -158,7 +158,7 @@ export async function listReportsForSession(session: {
             o.title AS order_title,
             l.name AS location_name,
             r.description,
-            (SELECT array_agg(e2.last_name || ' ' || e2.first_name ORDER BY e2.last_name, e2.first_name)
+            (SELECT array_agg(e2.first_name ORDER BY e2.first_name)
              FROM report_employees re
              JOIN employees e2 ON e2.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees
@@ -230,13 +230,13 @@ export async function getReport(id: number): Promise<ReportDetail | null> {
 
   const [employees, materials] = await Promise.all([
     query<{ name: string; start_time: string; end_time: string }>(
-      `SELECT (e.last_name || ' ' || e.first_name) AS name,
+      `SELECT (e.first_name) AS name,
               to_char(re.start_time, 'HH24:MI') AS start_time,
               to_char(re.end_time, 'HH24:MI') AS end_time
        FROM report_employees re
        JOIN employees e ON e.id = re.employee_id
        WHERE re.work_report_id = $1
-       ORDER BY e.last_name, e.first_name`,
+       ORDER BY e.first_name`,
       [id]
     ),
     query<{ name: string; used_qty: string; unit: string }>(
@@ -660,7 +660,7 @@ export async function listBossReports(orderId: number): Promise<BossReportItem[]
     `SELECT r.id,
             to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
             r.description,
-            (SELECT array_agg(e.last_name || ' ' || e.first_name ORDER BY e.last_name, e.first_name)
+            (SELECT array_agg(e.first_name ORDER BY e.first_name)
              FROM report_employees re
              JOIN employees e ON e.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees,
@@ -693,7 +693,7 @@ export async function listUnassignedReports(): Promise<BossReportItem[]> {
     `SELECT r.id,
             to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
             r.description,
-            (SELECT array_agg(e.last_name || ' ' || e.first_name ORDER BY e.last_name, e.first_name)
+            (SELECT array_agg(e.first_name ORDER BY e.first_name)
              FROM report_employees re
              JOIN employees e ON e.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees,

@@ -13,7 +13,7 @@ export interface EmployeeBasic {
  * Właściwa korekta nazwisk nastąpi migracją danych (bez zmiany kont).
  */
 export function displayName(e: { first_name: string; last_name: string }) {
-  return e.last_name === "Demo" ? e.first_name : `${e.last_name} ${e.first_name}`;
+  return e.last_name === "Demo" ? e.first_name : e.first_name;
 }
 
 const TECHNICAL_EXCLUDE = `NOT EXISTS (

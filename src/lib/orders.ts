@@ -258,6 +258,56 @@ export async function closeOrder(
   return { ok: true };
 }
 
+/**
+ * Usunięcie zlecenia — TYLKO szef. TRWAŁE: usuwa zlecenie razem z jego
+ * raportami (raporty + pozycje zużycia + przypisania monterów) oraz
+ * przypisaniami pracowników do zlecenia. Obiekt, katalog materiałów
+ * i zakupy zostają nietknięte (razem z planowanymi materiałami zlecenia).
+ * Bez raportów wystarczy skasować sam rekord zlecenia.
+ */
+export async function deleteOrder(
+  session: SessionUser,
+  orderId: number
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (session.role !== "boss") {
+    return { ok: false, error: "Tylko szef może usuwać zlecenia." };
+  }
+  if (!Number.isInteger(orderId) || orderId <= 0) {
+    return { ok: false, error: "Nieprawidłowe zlecenie." };
+  }
+  try {
+    return await withTransaction(async (tx) => {
+      const current = await tx.query<{ id: number }>(
+        `SELECT id FROM orders WHERE id = $1`,
+        [orderId]
+      );
+      if (current.rows.length === 0) {
+        return { ok: false as const, error: "Zlecenie nie istnieje." };
+      }
+
+      // Raporty zlecenia i ich pozycje (FK bez CASCADE).
+      const reportIds = await tx.query<{ id: number }>(
+        `SELECT id FROM work_reports WHERE order_id = $1`,
+        [orderId]
+      );
+      for (const r of reportIds.rows) {
+        await tx.query(`DELETE FROM report_materials WHERE work_report_id = $1`, [r.id]);
+        await tx.query(`DELETE FROM report_employees WHERE work_report_id = $1`, [r.id]);
+      }
+      await tx.query(`DELETE FROM work_reports WHERE order_id = $1`, [orderId]);
+
+      await tx.query(`DELETE FROM order_assignments WHERE order_id = $1`, [orderId]);
+      await tx.query(`DELETE FROM order_planned_materials WHERE order_id = $1`, [orderId]);
+      await tx.query(`DELETE FROM orders WHERE id = $1`, [orderId]);
+
+      return { ok: true as const };
+    });
+  } catch (err) {
+    console.error("deleteOrder:", err);
+    return { ok: false, error: "Nie udało się usunąć zlecenia." };
+  }
+}
+
 /** Szczegóły zlecenia do edycji (forma options + obecne wartości). */
 export async function getOrderForEdit(orderId: number): Promise<{
   id: number;

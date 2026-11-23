@@ -41,7 +41,7 @@ export interface EditableLeave {
  * (dane tymczasowe) pokazywane są samo imieniem; nazwiska poprawi migracja.
  */
 function displayName(e: { first_name: string; last_name: string }) {
-  return e.last_name === "Demo" ? e.first_name : `${e.last_name} ${e.first_name}`;
+  return e.last_name === "Demo" ? e.first_name : e.first_name;
 }
 
 const WEEKDAYS = ["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"];

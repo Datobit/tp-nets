@@ -44,7 +44,7 @@ function displayName(e: {
   first_name: string;
   last_name: string;
 }) {
-  return e.last_name === "Demo" ? e.first_name : `${e.last_name} ${e.first_name}`;
+  return e.last_name === "Demo" ? e.first_name : e.first_name;
 }
 
 export interface MaterialOption {
@@ -109,11 +109,6 @@ export default function ReportForm({
     ),
   ];
 
-  // Działy z istniejących danych (zlecenia) — bez wymyślania listy.
-  const departmentOptions = Array.from(
-    new Set(orders.map((o) => o.department).filter((d): d is string => Boolean(d)))
-  );
-
   // Pełny stan formularza — zapis przed „Dodaj zlecenie”, przywrócenie po powrocie.
   function currentState() {
     return {
@@ -122,7 +117,6 @@ export default function ReportForm({
       workerIds,
       description,
       placeDetails,
-      department,
       notes,
       noMaterials,
       materialRows,
@@ -135,7 +129,6 @@ export default function ReportForm({
     setWorkerIds(saved.workerIds?.length ? saved.workerIds : [employees[0] ? String(employees[0].id) : ""]);
     setDescription(saved.description ?? "");
     setPlaceDetails(saved.placeDetails ?? "");
-    setDepartment(saved.department ?? "");
     setNotes(saved.notes ?? "");
     setNoMaterials(saved.noMaterials ?? false);
     setMaterialRows(saved.materialRows ?? []);
@@ -254,7 +247,6 @@ export default function ReportForm({
       })),
       description,
       place_details: placeDetails || null,
-      department: department || null,
       notes: notes || null,
       materials: noMaterials
         ? []
@@ -346,30 +338,8 @@ export default function ReportForm({
                 <p className="text-muted-foreground">
                   {selectedOrder.location_address}
                 </p>
-                {selectedOrder.department && (
-                  <p>Dział (z zlecenia, do podglądu): {selectedOrder.department}</p>
-                )}
               </div>
             )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="department">Dział (raport)</Label>
-            <Select value={department} onValueChange={setDepartment}>
-              <SelectTrigger id="department" className="w-full">
-                <SelectValue placeholder="Wybierz dział (opcjonalnie)" />
-              </SelectTrigger>
-              <SelectContent>
-                {departmentOptions.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {d}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Dział dla tego raportu — zlecenie go nie narzuca.
-            </p>
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -513,7 +483,11 @@ export default function ReportForm({
                         <Select
                           value={row.material_id}
                           onValueChange={(v) =>
-                            updateMaterialRow(row.key, { material_id: v })
+                            updateMaterialRow(row.key, {
+                              material_id: v,
+                              // jednostka = podpowiedź katalogowa nowo wybranego materiału
+                              unit: allMaterials.find((m) => String(m.id) === v)?.base_unit ?? "",
+                            })
                           }
                         >
                           <SelectTrigger id={`mat-${row.key}`} className="w-full">

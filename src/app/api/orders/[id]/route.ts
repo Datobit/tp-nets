@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { closeOrder } from "@/lib/orders";
+import { closeOrder, deleteOrder } from "@/lib/orders";
 
 /**
  * PATCH /api/orders/[id] — akcje na zleceniu. Zostaje „close” (tylko szef);
@@ -37,7 +37,9 @@ export async function PATCH(
     const result =
       action === "close"
         ? await closeOrder(session, orderId)
-        : null;
+        : action === "delete"
+          ? await deleteOrder(session, orderId)
+          : null;
 
     if (!result) {
       return NextResponse.json(

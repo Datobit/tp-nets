@@ -4,6 +4,75 @@ import { query } from "@/lib/db";
 import { withTransaction } from "@/lib/db";
 
 /**
+ * PATCH /api/locations/[id] — edycja obiektu: nazwa, adres.
+ * DELETE /api/locations/[id] — usunięcie obiektu: TYLKO szef i tylko gdy
+ * obiekt nie ma żadnych zleceń (historia nie może stracić powiązania).
+ */
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json(
+        { ok: false, error: "Wymagane zalogowanie." },
+        { status: 401 }
+      );
+    }
+    if (session.role !== "boss") {
+      return NextResponse.json(
+        { ok: false, error: "Tylko szef może usuwać obiekty." },
+        { status: 403 }
+      );
+    }
+
+    const { id } = await params;
+    const locationId = Number(id);
+    if (!Number.isInteger(locationId) || locationId <= 0) {
+      return NextResponse.json(
+        { ok: false, error: "Nieprawidłowy obiekt." },
+        { status: 400 }
+      );
+    }
+
+    const ordersCount = await query<{ count: string }>(
+      `SELECT count(*) AS count FROM orders WHERE location_id = $1`,
+      [locationId]
+    );
+    if (Number(ordersCount.rows[0].count) > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Obiekt ma zlecenia — nie można go usunąć. Zamknij i przenieś zlecenia do innego obiektu.",
+        },
+        { status: 400 }
+      );
+    }
+
+    await query(`DELETE FROM location_contacts WHERE location_id = $1`, [locationId]);
+    const res = await query<{ id: number }>(
+      `DELETE FROM locations WHERE id = $1 RETURNING id`,
+      [locationId]
+    );
+    if (res.rows.length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Obiekt nie istnieje." },
+        { status: 404 }
+      );
+    }
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /api/locations/[id]:", err);
+    return NextResponse.json(
+      { ok: false, error: "Błąd serwera — obiekt nie został usunięty." },
+      { status: 500 }
+    );
+  }
+}
+
+/**
  * PATCH /api/locations/[id] — edycja obiektu: nazwa, adres. Reguły:
  * - nazwa nie może kolidować z innym obiektem,
  * - zmiana obiektu w ZLECENIU z raportami — osobna trasa (orders/[id]/edit,

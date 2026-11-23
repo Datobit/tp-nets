@@ -58,7 +58,7 @@ export interface MaterialOption {
 }
 
 function displayName(e: { first_name: string; last_name: string }) {
-  return e.last_name === "Demo" ? e.first_name : `${e.last_name} ${e.first_name}`;
+  return e.last_name === "Demo" ? e.first_name : e.first_name;
 }
 
 /**
@@ -342,7 +342,11 @@ export default function ReportEditForm({
                       <Select
                         value={String(row.material_id)}
                         onValueChange={(v) =>
-                          updateRow(index, { material_id: Number(v) })
+                          updateRow(index, {
+                            material_id: Number(v),
+                            // jednostka = podpowiedź katalogowa nowo wybranego materiału
+                            unit: catalogOptions.find((m) => m.id === Number(v))?.base_unit ?? "",
+                          })
                         }
                       >
                         <SelectTrigger className="w-full">
