@@ -1,0 +1,33 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgres://tp_nets:${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w .env}@db:5432/tp_nets"
+      APP_PUBLIC_URL: "${APP_PUBLIC_URL:-}"
+      APP_SESSION_SECRET: "${APP_SESSION_SECRET:?Ustaw APP_SESSION_SECRET w .env (min. 32 znaki)}"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tp_nets
+      POSTGRES_USER: tp_nets
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Ustaw POSTGRES_PASSWORD w .env}"
+    volumes:
+      - tp_nets_pgdata:/var/lib/postgresql
+      - ./db/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U tp_nets -d tp_nets"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+volumes:
+  tp_nets_pgdata: {}
