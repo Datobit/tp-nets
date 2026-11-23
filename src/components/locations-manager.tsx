@@ -259,22 +259,22 @@ export default function LocationsManager({
                         >
                           Edytuj obiekt
                         </Button>
-                        {l.orders_count === 0 && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-destructive"
-                            disabled={busyId === `d${l.id}`}
-                            onClick={() => setConfirmDeleteId(l.id)}
-                          >
-                            Usuń obiekt
-                          </Button>
-                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-destructive"
+                          disabled={busyId === `d${l.id}`}
+                          onClick={() => setConfirmDeleteId(l.id)}
+                        >
+                          Usuń obiekt
+                        </Button>
                       </div>
                       {confirmDeleteId === l.id && (
                         <div className="flex flex-col gap-1">
                           <p className="text-sm">
-                            Trwale usunąć obiekt „{l.name}” wraz z kontaktami?
+                            {l.orders_count > 0
+                              ? `Obiekt „${l.name}” ma zlecenia (${l.orders_count}) — serwer odrzuci usunięcie, bo historia raportów traciłaby powiązanie.`
+                              : `Trwale usunąć obiekt „${l.name}” wraz z kontaktami?`}
                           </p>
                           <div className="flex gap-2">
                             <Button
@@ -283,7 +283,7 @@ export default function LocationsManager({
                               disabled={busyId === `d${l.id}`}
                               onClick={() => deleteLocation(l.id)}
                             >
-                              {busyId === `d${l.id}` ? "Usuwanie…" : "Tak, usuń trwale"}
+                              {busyId === `d${l.id}` ? "Usuwanie…" : "Tak, usuń"}
                             </Button>
                             <Button
                               size="sm"
