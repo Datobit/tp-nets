@@ -1,4 +1,4 @@
-import { query, withTransaction } from "@/lib/db";
+import { query, withTransaction, type PoolClient } from "@/lib/db";
 
 export interface OrderOption {
   id: number;
@@ -101,6 +101,7 @@ export async function listReports(): Promise<ReportListItem[]> {
      FROM work_reports r
      JOIN orders o ON o.id = r.order_id
      JOIN locations l ON l.id = o.location_id
+     WHERE r.deleted_at IS NULL
      ORDER BY r.work_date DESC, r.id DESC
      LIMIT 100`
   );
@@ -169,6 +170,7 @@ export async function listReportsForSession(session: {
             SELECT 1 FROM report_employees re2
             WHERE re2.work_report_id = r.id AND re2.employee_id = $2
         )
+       AND r.deleted_at IS NULL
      ORDER BY work_date DESC, r.id DESC
      LIMIT 100`,
     [session.userId, session.employeeId ?? -1]
@@ -264,103 +266,145 @@ export interface SaveReportInput {
   place_details?: string | null;
   department?: string | null;
   notes?: string | null;
-  materials: { material_id: number; used_qty: number }[];
+  materials: { material_id: number; used_qty: number; unit?: string | null }[];
   no_materials: boolean;
 }
 
-/**
- * Walidacja po stronie serwera + zapis w jednej transakcji.
- * Zwraca id nowego raportu albo komunikat błędu po polsku.
- */
-export async function saveReport(
-  input: SaveReportInput,
-  createdByUserId: number
-): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
-  // --- walidacja serwerowa ---
+const UNIT_MAX = 20;
+
+function validateReport(input: SaveReportInput): string | null {
   if (!Number.isInteger(input.order_id) || input.order_id <= 0) {
-    return { ok: false, error: "Wybierz zlecenie." };
+    return "Wybierz zlecenie.";
   }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.work_date)) {
-    return { ok: false, error: "Podaj poprawną datę pracy." };
+    return "Podaj poprawną datę pracy.";
   }
   const description = input.description?.trim() ?? "";
   if (!description) {
-    return { ok: false, error: "Opis wykonanej pracy jest wymagany." };
+    return "Opis wykonanej pracy jest wymagany.";
   }
   if (
     !Array.isArray(input.employees) ||
     input.employees.length < 1 ||
     input.employees.length > 3
   ) {
-    return {
-      ok: false,
-      error: "Wybierz od 1 do 3 monterów.",
-    };
+    return "Wybierz od 1 do 3 monterów.";
   }
   const employeeIds = input.employees.map((e) => e.employee_id);
   if (new Set(employeeIds).size !== employeeIds.length) {
-    return { ok: false, error: "Monterzy muszą być różni (bez duplikatów)." };
+    return "Monterzy muszą być różni (bez duplikatów).";
   }
   for (const e of input.employees) {
     if (!Number.isInteger(e.employee_id) || e.employee_id <= 0) {
-      return { ok: false, error: "Wybierz monterów z listy." };
+      return "Wybierz monterów z listy.";
     }
     if (!/^\d{2}:\d{2}$/.test(e.start_time) || !/^\d{2}:\d{2}$/.test(e.end_time)) {
-      return { ok: false, error: "Godziny monterów mają format HH:MM." };
+      return "Godziny monterów mają format HH:MM.";
     }
     if (e.end_time <= e.start_time) {
-      return { ok: false, error: "Godzina zakończenia musi być po godzinie rozpoczęcia." };
+      return "Godzina zakończenia musi być po godzinie rozpoczęcia.";
     }
   }
   if (input.no_materials && input.materials.length > 0) {
-    return {
-      ok: false,
-      error: "Nie można jednocześnie zaznaczyć „brak materiałów” i podać pozycje.",
-    };
+    return "Nie można jednocześnie zaznaczyć „brak materiałów” i podać pozycji.";
   }
   for (const m of input.materials) {
     if (!Number.isInteger(m.material_id) || m.material_id <= 0) {
-      return { ok: false, error: "Wybierz materiał z katalogu." };
+      return "Wybierz materiał z katalogu.";
     }
     if (typeof m.used_qty !== "number" || !Number.isFinite(m.used_qty) || m.used_qty <= 0) {
-      return { ok: false, error: "Ilość materiału musi być liczbą dodatnią." };
+      return "Ilość materiału musi być liczbą dodatnią.";
+    }
+    if (m.unit != null && (typeof m.unit !== "string" || m.unit.trim().length > UNIT_MAX)) {
+      return `Jednostka może mieć maksymalnie ${UNIT_MAX} znaków.`;
     }
   }
+  return null;
+}
 
-  // --- transakcja ---
+/**
+ * Wstawia pozycje zużycia materiałów. Jednostka: podpowiedź z katalogu,
+ * ale można wpisać inną (np. 0,5 paczki dla materiału w szt.) — bez
+ * przelicznika aplikacja NIE sumuje pozycji w różnych jednostkach.
+ * Cena: brak — koszt to osobny proces akceptacji (suggested_cost_net NULL).
+ */
+async function insertMaterialRows(
+  tx: PoolClient,
+  reportId: number,
+  materials: SaveReportInput["materials"]
+): Promise<void> {
+  for (const m of materials) {
+    await tx.query(
+      `INSERT INTO report_materials (work_report_id, material_id, used_qty, unit)
+       VALUES ($1, $2, $3, COALESCE(nullif(btrim($4), ''), (SELECT base_unit FROM materials WHERE id = $2)))`,
+      [reportId, m.material_id, m.used_qty, m.unit ?? null]
+    );
+  }
+}
+
+async function insertEmployeeRows(
+  tx: PoolClient,
+  reportId: number,
+  employees: SaveReportInput["employees"]
+): Promise<void> {
+  for (const e of employees) {
+    await tx.query(
+      `INSERT INTO report_employees (work_report_id, employee_id, start_time, end_time)
+       VALUES ($1, $2, $3::time, $4::time)`,
+      [reportId, e.employee_id, e.start_time, e.end_time]
+    );
+  }
+}
+
+/** Walidacja danych raportu wobec bazy (zlecenie, monterzy, materiały). */
+async function validateAgainstDb(
+  tx: PoolClient,
+  input: SaveReportInput
+): Promise<string | null> {
+  const order = await tx.query(`SELECT id FROM orders WHERE id = $1`, [
+    input.order_id,
+  ]);
+  if (order.rows.length === 0) {
+    return "Wybrane zlecenie nie istnieje.";
+  }
+
+  const employeeIds = input.employees.map((e) => e.employee_id);
+  const employees = await tx.query<{ id: number }>(
+    `SELECT id FROM employees WHERE id = ANY($1::int[]) AND is_active AND can_be_assigned`,
+    [employeeIds]
+  );
+  if (employees.rows.length !== employeeIds.length) {
+    return "Wybrany monter nie istnieje lub nie może być przypisany.";
+  }
+
+  if (!input.no_materials && input.materials.length > 0) {
+    const materialIds = input.materials.map((m) => m.material_id);
+    const materials = await tx.query<{ id: number }>(
+      `SELECT id FROM materials WHERE id = ANY($1::int[]) AND is_active`,
+      [materialIds]
+    );
+    if (materials.rows.length !== new Set(materialIds).size) {
+      return "Wybrany materiał nie istnieje w katalogu.";
+    }
+  }
+  return null;
+}
+
+/**
+ * Nowy raport. Walidacja po stronie serwera + zapis w jednej transakcji.
+ * Zwraca id nowego raportu albo komunikat błędu po polsku.
+ */
+export async function saveReport(
+  input: SaveReportInput,
+  createdByUserId: number
+): Promise<{ ok: true; id: number } | { ok: false; error: string }> {
+  const invalid = validateReport(input);
+  if (invalid) return { ok: false, error: invalid };
+
   try {
     return await withTransaction(async (tx) => {
-      const order = await tx.query(`SELECT id FROM orders WHERE id = $1`, [
-        input.order_id,
-      ]);
-      if (order.rows.length === 0) {
-        return { ok: false as const, error: "Wybrane zlecenie nie istnieje." };
-      }
-
-      const employees = await tx.query<{ id: number }>(
-        `SELECT id FROM employees WHERE id = ANY($1::int[]) AND is_active AND can_be_assigned`,
-        [employeeIds]
-      );
-      if (employees.rows.length !== employeeIds.length) {
-        return {
-          ok: false as const,
-          error: "Wybrany monter nie istnieje lub nie może być przypisany.",
-        };
-      }
-
-      if (!input.no_materials && input.materials.length > 0) {
-        const materialIds = input.materials.map((m) => m.material_id);
-        const materials = await tx.query<{ id: number }>(
-          `SELECT id FROM materials WHERE id = ANY($1::int[]) AND is_active`,
-          [materialIds]
-        );
-        if (materials.rows.length !== new Set(materialIds).size) {
-          return {
-            ok: false as const,
-            error: "Wybrany materiał nie istnieje w katalogu.",
-          };
-        }
-      }
+      const dbInvalid = await validateAgainstDb(tx, input);
+      if (dbInvalid) return { ok: false as const, error: dbInvalid };
 
       const inserted = await tx.query<{ id: number }>(
         `INSERT INTO work_reports (order_id, created_by_user_id, work_date, place_details, department, description, notes, no_materials)
@@ -372,29 +416,16 @@ export async function saveReport(
           input.work_date,
           input.place_details?.trim() || null,
           input.department?.trim() || null,
-          description,
+          input.description.trim(),
           input.notes?.trim() || null,
           input.no_materials,
         ]
       );
       const reportId = inserted.rows[0].id;
 
-      for (const e of input.employees) {
-        await tx.query(
-          `INSERT INTO report_employees (work_report_id, employee_id, start_time, end_time)
-           VALUES ($1, $2, $3::time, $4::time)`,
-          [reportId, e.employee_id, e.start_time, e.end_time]
-        );
-      }
-
+      await insertEmployeeRows(tx, reportId, input.employees);
       if (!input.no_materials) {
-        for (const m of input.materials) {
-          await tx.query(
-            `INSERT INTO report_materials (work_report_id, material_id, used_qty, unit)
-             VALUES ($1, $2, $3, (SELECT base_unit FROM materials WHERE id = $2))`,
-            [reportId, m.material_id, m.used_qty]
-          );
-        }
+        await insertMaterialRows(tx, reportId, input.materials);
       }
 
       return { ok: true as const, id: reportId };
@@ -403,4 +434,279 @@ export async function saveReport(
     console.error("Błąd zapisu raportu:", err);
     return { ok: false, error: "Nie udało się zapisać raportu. Spróbuj ponownie." };
   }
+}
+
+/** Zmiany w nagłówku raportu (edycja): co wolne do nadpisania. */
+export interface UpdateReportInput {
+  work_date: string;
+  employees: { employee_id: number; start_time: string; end_time: string }[];
+  description: string;
+  place_details?: string | null;
+  department?: string | null;
+  notes?: string | null;
+  materials: SaveReportInput["materials"];
+  no_materials: boolean;
+}
+
+/**
+ * Edycja raportu: TYLKO autor i tylko dopóki raport nie jest usunięty.
+ * Monter dopisany do raportu NIE ma prawa edycji (sprawdzenie po userId
+ * z sesji, po stronie serwera). Zlecenie raportu nie podlega zmianie —
+ * raport należy do zlecenia; treść robocza (data, godziny, miejsce, uwagi,
+ * materiały) może być poprawiona przez autora.
+ */
+export async function updateReport(
+  reportId: number,
+  session: { role: "worker" | "boss"; userId: number },
+  input: UpdateReportInput
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return { ok: false, error: "Nieprawidłowy raport." };
+  }
+  const shared: SaveReportInput = {
+    order_id: 0, // nieużywane w validateReport dla edycji — patrz niżej
+    ...input,
+  } as SaveReportInput;
+  // Walidacja treści (bez order_id — przy edycji zlecenie jest stałe).
+  const orderIndependent = validateReport({ ...shared, order_id: 1 });
+  if (orderIndependent) return { ok: false, error: orderIndependent };
+
+  try {
+    return await withTransaction(async (tx) => {
+      const current = await tx.query<{ id: number; order_id: number; created_by_user_id: number; deleted_at: Date | null }>(
+        `SELECT id, order_id, created_by_user_id, deleted_at
+         FROM work_reports WHERE id = $1`,
+        [reportId]
+      );
+      if (current.rows.length === 0) {
+        return { ok: false as const, error: "Raport nie istnieje." };
+      }
+      const report = current.rows[0];
+      if (report.deleted_at !== null) {
+        return {
+          ok: false as const,
+          error: "Raport jest usunięty — najpierw przywróć go.",
+        };
+      }
+      if (report.created_by_user_id !== session.userId) {
+        return {
+          ok: false as const,
+          error: "Tylko autor raportu może go edytować.",
+        };
+      }
+
+      // Walidacja danych wobec bazy (monterzy, materiały) — z prawdziwym order_id.
+      const inputForDb: SaveReportInput = { ...shared, order_id: report.order_id };
+      const dbInvalid = await validateAgainstDb(tx, inputForDb);
+      if (dbInvalid) return { ok: false as const, error: dbInvalid };
+
+      await tx.query(
+        `UPDATE work_reports
+         SET work_date = $1, place_details = $2, department = $3,
+             description = $4, notes = $5, no_materials = $6,
+             updated_at = now()
+         WHERE id = $7`,
+        [
+          input.work_date,
+          input.place_details?.trim() || null,
+          input.department?.trim() || null,
+          input.description.trim(),
+          input.notes?.trim() || null,
+          input.no_materials,
+          reportId,
+        ]
+      );
+
+      await tx.query(`DELETE FROM report_employees WHERE work_report_id = $1`, [reportId]);
+      await insertEmployeeRows(tx, reportId, input.employees);
+
+      await tx.query(`DELETE FROM report_materials WHERE work_report_id = $1`, [reportId]);
+      if (!input.no_materials) {
+        await insertMaterialRows(tx, reportId, input.materials);
+      }
+
+      return { ok: true as const };
+    });
+  } catch (err) {
+    console.error("updateReport:", err);
+    return { ok: false, error: "Nie udało się zapisać zmian raportu." };
+  }
+}
+
+/**
+ * Usunięcie raportu: TYLKO autor (szef nie usuwa cudzych). TRWAŁE —
+ * usuwa raport razem z pozycjami zużycia materiałów i przypisaniami
+ * monterów. Zlecenie, katalog materiałów i zakupy zostają nietknięte.
+ * Stary link do raportu zwraca potem 404 (brak wiersza).
+ */
+export async function deleteReport(
+  reportId: number,
+  session: { role: "worker" | "boss"; userId: number }
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return { ok: false, error: "Nieprawidłowy raport." };
+  }
+  try {
+    return await withTransaction(async (tx) => {
+      const current = await tx.query<{ created_by_user_id: number }>(
+        `SELECT created_by_user_id FROM work_reports WHERE id = $1`,
+        [reportId]
+      );
+      if (current.rows.length === 0) {
+        return { ok: false as const, error: "Raport nie istnieje." };
+      }
+      if (current.rows[0].created_by_user_id !== session.userId) {
+        return {
+          ok: false as const,
+          error: "Tylko autor raportu może go usunąć.",
+        };
+      }
+
+      // Pozycje i przypisania first (FK bez CASCADE), potem sam raport.
+      await tx.query(`DELETE FROM report_materials WHERE work_report_id = $1`, [reportId]);
+      await tx.query(`DELETE FROM report_employees WHERE work_report_id = $1`, [reportId]);
+      await tx.query(`DELETE FROM work_reports WHERE id = $1`, [reportId]);
+
+      return { ok: true as const };
+    });
+  } catch (err) {
+    console.error("deleteReport:", err);
+    return { ok: false, error: "Nie udało się usunąć raportu." };
+  }
+}
+
+// --- Widok szefa: Obiekt → Zlecający → Zlecenia → Raporty ---
+
+export interface BossLocation {
+  id: number;
+  name: string;
+  address: string;
+  reports_count: number;
+}
+
+export interface BossContact {
+  id: number;
+  full_name: string;
+  location_id: number;
+  reports_count: number;
+}
+
+export interface BossOrder {
+  id: number;
+  order_number: string;
+  title: string;
+  status: "new" | "in_progress" | "done";
+  reports_count: number;
+}
+
+export interface BossReportItem {
+  id: number;
+  work_date: string;
+  description: string;
+  employees: string[];
+  author: string | null;
+}
+
+export async function listBossLocations(): Promise<BossLocation[]> {
+  const res = await query<BossLocation>(
+    `SELECT l.id, l.name, l.address,
+            (SELECT count(*) FROM work_reports r
+             JOIN orders o ON o.id = r.order_id
+             WHERE o.location_id = l.id AND r.deleted_at IS NULL) AS reports_count
+     FROM locations l
+     ORDER BY l.name`
+  );
+  return res.rows.map((r) => ({ ...r, reports_count: Number(r.reports_count) }));
+}
+
+/** Zlecający danego obiektu (kontakty) z liczbą raportów ich zleceń. */
+export async function listBossContacts(locationId: number): Promise<BossContact[]> {
+  const res = await query<BossContact>(
+    `SELECT c.id, c.full_name, c.location_id,
+            (SELECT count(*) FROM work_reports r
+             JOIN orders o ON o.id = r.order_id
+             WHERE o.requested_by_contact_id = c.id AND r.deleted_at IS NULL) AS reports_count
+     FROM location_contacts c
+     WHERE c.location_id = $1
+     ORDER BY c.full_name`,
+    [locationId]
+  );
+  return res.rows.map((r) => ({ ...r, reports_count: Number(r.reports_count) }));
+}
+
+/** Zlecenia danego zlecającego: AKTYWNE i ZAMKNIĘTE (historia bez strat). */
+export async function listBossOrders(contactId: number): Promise<BossOrder[]> {
+  const res = await query<BossOrder>(
+    `SELECT o.id, o.order_number, o.title, o.status,
+            (SELECT count(*) FROM work_reports r
+             WHERE r.order_id = o.id AND r.deleted_at IS NULL) AS reports_count
+     FROM orders o
+     WHERE o.requested_by_contact_id = $1
+     ORDER BY (o.status = 'done'), o.id DESC`,
+    [contactId]
+  );
+  return res.rows.map((r) => ({ ...r, reports_count: Number(r.reports_count) }));
+}
+
+/** Raporty zlecenia. */
+export async function listBossReports(orderId: number): Promise<BossReportItem[]> {
+  const res = await query<{
+    id: number;
+    work_date: string;
+    description: string;
+    employees: string[] | null;
+    author: string | null;
+  }>(
+    `SELECT r.id,
+            to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
+            r.description,
+            (SELECT array_agg(e.last_name || ' ' || e.first_name ORDER BY e.last_name, e.first_name)
+             FROM report_employees re
+             JOIN employees e ON e.id = re.employee_id
+             WHERE re.work_report_id = r.id) AS employees,
+            u.email AS author
+     FROM work_reports r
+     LEFT JOIN users u ON u.id = r.created_by_user_id
+     WHERE r.order_id = $1
+     ORDER BY r.work_date DESC, r.id DESC`,
+    [orderId]
+  );
+  return res.rows.map((row) => ({
+    ...row,
+    employees: row.employees ?? [],
+  }));
+}
+
+/**
+ * „Do przypisania”: raporty, których zlecenie NIE MA pewnego powiązania
+ * z osobą zlecającą (stare zlecenia przed wprowadzeniem kontaktów).
+ * Bez zgadywania — nic nie jest dopasowywane automatycznie.
+ */
+export async function listUnassignedReports(): Promise<BossReportItem[]> {
+  const res = await query<{
+    id: number;
+    work_date: string;
+    description: string;
+    employees: string[] | null;
+    author: string | null;
+  }>(
+    `SELECT r.id,
+            to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
+            r.description,
+            (SELECT array_agg(e.last_name || ' ' || e.first_name ORDER BY e.last_name, e.first_name)
+             FROM report_employees re
+             JOIN employees e ON e.id = re.employee_id
+             WHERE re.work_report_id = r.id) AS employees,
+            u.email AS author
+     FROM work_reports r
+     JOIN orders o ON o.id = r.order_id
+     LEFT JOIN users u ON u.id = r.created_by_user_id
+     WHERE o.requested_by_contact_id IS NULL AND r.deleted_at IS NULL
+     ORDER BY r.work_date DESC, r.id DESC
+     LIMIT 200`
+  );
+  return res.rows.map((row) => ({
+    ...row,
+    employees: row.employees ?? [],
+  }));
 }

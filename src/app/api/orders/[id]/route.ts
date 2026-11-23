@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
-import { closeOrder, renameOrder } from "@/lib/orders";
+import { closeOrder } from "@/lib/orders";
 
+/**
+ * PATCH /api/orders/[id] — akcje na zleceniu. Zostaje „close” (tylko szef);
+ * edycja treści idzie przez PATCH /api/orders/[id]/edit.
+ */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -33,13 +37,6 @@ export async function PATCH(
     const result =
       action === "close"
         ? await closeOrder(session, orderId)
-        : action === "rename" &&
-            typeof (body as { title?: unknown }).title === "string"
-          ? await renameOrder(
-              session,
-              orderId,
-              (body as { title: string }).title
-            )
         : null;
 
     if (!result) {

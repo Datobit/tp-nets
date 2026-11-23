@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { connection } from "next/server";
 import { listReportsForSession } from "@/lib/reports";
 import { requireSession } from "@/lib/auth";
-import { MainNav } from "@/components/main-nav";
+import { MainNav, BossAllReportsLink } from "@/components/main-nav";
 import { LogoutButton } from "@/components/logout-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -100,17 +100,31 @@ export default function Home() {
         <LogoutButton />
       </div>
       <MainNav active="raporty" />
+      <Suspense
+        fallback={<p className="text-sm text-muted-foreground">Ładowanie…</p>}
+      >
+        <ReportsSection />
+      </Suspense>
+    </main>
+  );
+}
+
+async function ReportsSection() {
+  const session = await requireSession();
+  return (
+    <>
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-medium">Raporty</h2>
         <Button asChild size="sm">
           <Link href="/reports/new">Nowy raport</Link>
         </Button>
       </div>
+      {session.role === "boss" && <BossAllReportsLink />}
       <Suspense
         fallback={<p className="text-sm text-muted-foreground">Ładowanie…</p>}
       >
         <ReportList />
       </Suspense>
-    </main>
+    </>
   );
 }

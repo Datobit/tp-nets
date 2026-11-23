@@ -36,8 +36,14 @@ export interface EmployeeOption {
   last_name: string;
 }
 
-/** Osoby demo mają techniczne nazwisko „Demo” — pokazujemy samo imię. */
-function displayName(e: EmployeeOption) {
+/**
+ * Wyświetlana nazwa pracownika. Osoby z technicznym nazwiskiem „Demo”
+ * (dane tymczasowe) pokazywane są samo imieniem; nazwiska poprawi migracja.
+ */
+function displayName(e: {
+  first_name: string;
+  last_name: string;
+}) {
   return e.last_name === "Demo" ? e.first_name : `${e.last_name} ${e.first_name}`;
 }
 
@@ -51,6 +57,7 @@ interface MaterialRow {
   key: number;
   material_id: string;
   used_qty: string;
+  unit: string;
 }
 
 const MAX_EMPLOYEES = 3;
@@ -163,7 +170,12 @@ export default function ReportForm({
           if (rows.some((r) => r.material_id === String(mat.id))) return rows;
           return [
             ...rows,
-            { key: Date.now(), material_id: String(mat.id), used_qty: "" },
+            {
+              key: Date.now(),
+              material_id: String(mat.id),
+              used_qty: "",
+              unit: mat.base_unit,
+            },
           ];
         });
       }
@@ -196,6 +208,7 @@ export default function ReportForm({
         key: Date.now() + rows.length,
         material_id: allMaterials[0] ? String(allMaterials[0].id) : "",
         used_qty: "",
+        unit: allMaterials[0]?.base_unit ?? "",
       },
     ]);
   }
@@ -250,6 +263,7 @@ export default function ReportForm({
             .map((r) => ({
               material_id: Number(r.material_id),
               used_qty: Number(r.used_qty.replace(",", ".")),
+              unit: r.unit,
             })),
       no_materials: noMaterials,
     };
@@ -543,11 +557,16 @@ export default function ReportForm({
                           }
                         />
                       </div>
-                      <div className="w-16">
+                      <div className="w-24">
                         <Label>Jednostka</Label>
-                        <div className="rounded-md border border-input bg-muted px-3 py-2 text-center text-sm text-muted-foreground">
-                          {mat?.base_unit ?? "—"}
-                        </div>
+                        <Input
+                          value={row.unit ?? ""}
+                          placeholder={mat?.base_unit ?? ""}
+                          maxLength={20}
+                          onChange={(e) =>
+                            updateMaterialRow(row.key, { unit: e.target.value })
+                          }
+                        />
                       </div>
                     </div>
                   </div>

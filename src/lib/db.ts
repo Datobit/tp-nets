@@ -1,5 +1,7 @@
 import { Pool, type QueryResult, type QueryResultRow, type PoolClient } from "pg";
 
+export type { PoolClient };
+
 let pool: Pool | null = null;
 
 export function getPool(): Pool {

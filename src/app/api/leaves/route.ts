@@ -22,6 +22,7 @@ export async function POST(req: Request) {
 
     const input = body as {
       employee_id?: unknown;
+      dates?: unknown;
       start_date?: unknown;
       end_date?: unknown;
       note?: unknown;
@@ -29,8 +30,9 @@ export async function POST(req: Request) {
 
     const result = await createLeaveRequestForSession(session, {
       employee_id: Number(input.employee_id),
-      start_date: String(input.start_date ?? ""),
-      end_date: String(input.end_date ?? ""),
+      dates: input.dates,
+      start_date: typeof input.start_date === "string" ? input.start_date : undefined,
+      end_date: typeof input.end_date === "string" ? input.end_date : undefined,
       note: typeof input.note === "string" ? input.note : null,
     });
 

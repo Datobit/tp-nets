@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { createOrder } from "@/lib/orders";
 
+/**
+ * POST /api/orders — nowe zlecenie. Wymagane: tytuł, obiekt, osoba
+ * zlecająca (kontakt wybranego obiektu). Numer nadaje serwer.
+ */
 export async function POST(req: Request) {
   try {
     const session = await getSession();
@@ -23,31 +27,18 @@ export async function POST(req: Request) {
     const raw = body as {
       title?: unknown;
       location_id?: unknown;
-      new_location?: unknown;
+      requested_by_contact_id?: unknown;
     };
-
-    const newLocationRaw =
-      raw.new_location && typeof raw.new_location === "object"
-        ? (raw.new_location as { name?: unknown; address?: unknown })
-        : null;
-    const newLocation =
-      newLocationRaw && typeof newLocationRaw.name === "string" && newLocationRaw.name.trim()
-        ? {
-            name: newLocationRaw.name,
-            address:
-              typeof newLocationRaw.address === "string"
-                ? newLocationRaw.address
-                : null,
-          }
-        : null;
 
     const result = await createOrder(session, {
       title: typeof raw.title === "string" ? raw.title : "",
-      location_id:
-        typeof raw.location_id === "number" || typeof raw.location_id === "string"
-          ? Number(raw.location_id)
-          : null,
-      new_location: newLocation,
+      location_id: Number(raw.location_id),
+      requested_by_contact_id:
+        raw.requested_by_contact_id === null ||
+        raw.requested_by_contact_id === undefined ||
+        raw.requested_by_contact_id === ""
+          ? null
+          : Number(raw.requested_by_contact_id),
     });
     if (!result.ok) {
       return NextResponse.json(result, { status: 400 });
