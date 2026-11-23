@@ -1,9 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   cacheComponents: true,
   partialPrefetching: true,
+  // Kompresja odpowiedzi (gzip) — bez niej ~640 KiB JS/CSS idzie surowo,
+  // co na łączu telefonu przez Tailscale odczuwalnie zwalnia pierwszy
+  // load. Lokalnie: najcięższy chunk 229 KiB → ~72 KiB.
+  compress: true,
   turbopack: {
     rules: {
       "*.css": {

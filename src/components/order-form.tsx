@@ -78,6 +78,46 @@ export default function OrderForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // „Dodaj zlecającego” inline — bez utraty wpisanego tytułu (formularz
+  // nie jest resetowany; nowy kontakt od razu zaznaczany).
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+  const [contactSaving, setContactSaving] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  async function addContact() {
+    if (contactSaving) return;
+    setContactError(null);
+    setContactSaving(true);
+    try {
+      const res = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location_id: Number(locationId),
+          full_name: newContactName,
+          phone: newContactPhone || null,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setContactError(data?.error ?? "Nie udało się dodać kontaktu.");
+        return;
+      }
+      const created = data.contact as { id: number; full_name: string };
+      setContactId(String(created.id));
+      setShowContactForm(false);
+      setNewContactName("");
+      setNewContactPhone("");
+      router.refresh(); // odśwież listę kontaktów przekazaną z serwera
+    } catch {
+      setContactError("Błąd połączenia — kontakt nie został dodany.");
+    } finally {
+      setContactSaving(false);
+    }
+  }
+
   const hasReports = (editing?.reports_count ?? 0) > 0;
   const locationLocked = Boolean(editing?.id) && hasReports;
 
@@ -214,26 +254,81 @@ export default function OrderForm({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="contact">Osoba zlecająca (kontakt obiektu)</Label>
-            {locationContacts.length === 0 ? (
+            <Label htmlFor="contact">Zlecający (kontakt klienta)</Label>
+            {locationContacts.length === 0 && !contactId ? (
               <p className="text-sm text-muted-foreground">
-                Ten obiekt nie ma jeszcze kontaktów — poproś szefa o dodanie.
+                Ten obiekt nie ma jeszcze kontaktów — dodaj osobę zlecającą
+                poniżej.
               </p>
-            ) : (
-              <Select value={contactId} onValueChange={setContactId}>
-                <SelectTrigger id="contact" className="w-full">
-                  <SelectValue placeholder="Wybierz osobę zlecającą" />
-                </SelectTrigger>
-                <SelectContent>
-                  {locationContacts.map((c) => (
-                    <SelectItem key={c.id} value={String(c.id)}>
-                      {c.full_name}
-                      {c.phone ? ` (${c.phone})` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            ) : null}
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Select value={contactId} onValueChange={setContactId}>
+                  <SelectTrigger id="contact" className="w-full">
+                    <SelectValue placeholder="Wybierz osobę zlecającą" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {locationContacts.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>
+                        {c.full_name}
+                        {c.phone ? ` (${c.phone})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowContactForm((v) => !v)}
+              >
+                {showContactForm ? "Ukryj" : "Dodaj zlecającego"}
+              </Button>
+            </div>
+
+            {showContactForm && (
+              <div className="flex flex-col gap-2 rounded-md border p-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="contact-name">Imię i nazwisko</Label>
+                  <Input
+                    id="contact-name"
+                    value={newContactName}
+                    maxLength={120}
+                    onChange={(e) => setNewContactName(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="contact-phone">Telefon (opcjonalnie)</Label>
+                  <Input
+                    id="contact-phone"
+                    value={newContactPhone}
+                    maxLength={40}
+                    onChange={(e) => setNewContactPhone(e.target.value)}
+                  />
+                </div>
+                {contactError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {contactError}
+                  </p>
+                )}
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!newContactName.trim() || contactSaving}
+                  onClick={addContact}
+                >
+                  {contactSaving
+                    ? "Dodawanie…"
+                    : editing?.id
+                      ? "Dodaj i przypisz"
+                      : "Dodaj i zaznacz"}
+                </Button>
+              </div>
             )}
+            <p className="text-xs text-muted-foreground">
+              Kontakt należy do wybranego obiektu; zmiana obiektu czyści wybór.
+            </p>
           </div>
 
           <div className="flex gap-2">
