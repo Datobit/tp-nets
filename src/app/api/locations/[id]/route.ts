@@ -36,6 +36,9 @@ export async function DELETE(
       );
     }
 
+    // Usuwanie obiektu: jeśli ma zlecenia — szef musi je najpierw usunąć
+    // (zlecenia są usuwalne przez PATCH /api/orders/[id] action=delete,
+    // także zamknięte). Liczymy AKTYWNE i ZAMKNIĘTE — bez ukrytych resztek.
     const ordersCount = await query<{ count: string }>(
       `SELECT count(*) AS count FROM orders WHERE location_id = $1`,
       [locationId]
@@ -45,7 +48,7 @@ export async function DELETE(
         {
           ok: false,
           error:
-            "Obiekt ma zlecenia — nie można go usunąć. Zamknij i przenieś zlecenia do innego obiektu.",
+            "Obiekt ma zlecenia — usuń najpierw jego zlecenia (zakładka Zlecenia, przycisk „Usuń zlecenie”).",
         },
         { status: 400 }
       );

@@ -68,8 +68,12 @@ async function OrdersList() {
                 <Button asChild variant="outline" size="sm">
                   <a href={`/orders/${o.id}/edit`}>Edytuj</a>
                 </Button>
-                {session.role === "boss" && o.status !== "done" && (
-                  <BossOrderActions orderId={o.id} currentTitle={o.title} />
+                {session.role === "boss" && (
+                  <BossOrderActions
+                    orderId={o.id}
+                    currentTitle={o.title}
+                    isClosed={o.status === "done"}
+                  />
                 )}
               </div>
             </CardContent>

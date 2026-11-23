@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-/** Akcje szefa na zleceniu: zmiana nazwy i zamknięcie. */
+/** Akcje szefa na zleceniu: zmiana nazwy, zamknięcie i usunięcie.
+ * Zamknięte zlecenie: bez „Zamknij” (już zamknięte), ale „Usuń” dostępne. */
 export function BossOrderActions({
   orderId,
   currentTitle,
+  isClosed = false,
 }: {
   orderId: number;
   currentTitle: string;
+  isClosed?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -119,14 +122,16 @@ export function BossOrderActions({
           <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
             Zmień nazwę
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={busy}
-            onClick={() => send("close")}
-          >
-            Zamknij zlecenie
-          </Button>
+          {!isClosed && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => send("close")}
+            >
+              Zamknij zlecenie
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
