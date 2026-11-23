@@ -47,7 +47,8 @@ export function DeleteReportButton({ reportId }: { reportId: number }) {
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm">
-        Usunąć raport? Znika z widoków; szef będzie mógł go przywrócić.
+        Trwale usunąć raport z pozycjami materiałów? Operacji nie można
+        cofnąć.
       </p>
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -61,7 +62,7 @@ export function DeleteReportButton({ reportId }: { reportId: number }) {
           disabled={busy}
           onClick={doDelete}
         >
-          {busy ? "Usuwanie…" : "Tak, usuń"}
+          {busy ? "Usuwanie…" : "Tak, usuń trwale"}
         </Button>
         <Button
           variant="outline"
@@ -72,47 +73,6 @@ export function DeleteReportButton({ reportId }: { reportId: number }) {
           Anuluj
         </Button>
       </div>
-    </div>
-  );
-}
-
-/** Przywrócenie usuniętego raportu — tylko szef widzi przycisk. */
-export function RestoreReportButton({ reportId }: { reportId: number }) {
-  const router = useRouter();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function doRestore() {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/reports/${reportId}/restore`, {
-        method: "POST",
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) {
-        setError(data?.error ?? "Nie udało się przywrócić raportu.");
-        return;
-      }
-      router.refresh();
-    } catch {
-      setError("Błąd połączenia.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Button variant="outline" size="sm" disabled={busy} onClick={doRestore}>
-        {busy ? "Przywracanie…" : "Przywróć raport"}
-      </Button>
-      {error && (
-        <p role="alert" className="text-sm text-destructive">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

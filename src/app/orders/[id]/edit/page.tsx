@@ -17,6 +17,10 @@ async function OrderEditInner({ params }: { params: Promise<{ id: string }> }) {
     listLocations(),
     listActiveContacts(),
   ]);
+  const loc = locations.find((l) => l.id === order.location_id);
+  const contact = contacts.find(
+    (c) => c.id === order.requested_by_contact_id
+  );
   return (
     <OrderForm
       locations={locations}
@@ -26,7 +30,10 @@ async function OrderEditInner({ params }: { params: Promise<{ id: string }> }) {
         order_number: order.order_number,
         title: order.title,
         location_id: order.location_id,
+        location_name: loc?.name,
         requested_by_contact_id: order.requested_by_contact_id,
+        requested_by_name: contact?.full_name ?? null,
+        reports_count: order.reports_count,
       }}
     />
   );

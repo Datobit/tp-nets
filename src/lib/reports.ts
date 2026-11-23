@@ -534,8 +534,10 @@ export async function updateReport(
 }
 
 /**
- * Usunięcie raportu: TYLKO autor (szef nie może usunąć cudzego raportu).
- * Miękkie usunięcie — rekord i pozycje zostają; raport znika z widoków.
+ * Usunięcie raportu: TYLKO autor (szef nie usuwa cudzych). TRWAŁE —
+ * usuwa raport razem z pozycjami zużycia materiałów i przypisaniami
+ * monterów. Zlecenie, katalog materiałów i zakupy zostają nietknięte.
+ * Stary link do raportu zwraca potem 404 (brak wiersza).
  */
 export async function deleteReport(
   reportId: number,
@@ -545,53 +547,31 @@ export async function deleteReport(
     return { ok: false, error: "Nieprawidłowy raport." };
   }
   try {
-    const res = await query<{ id: number }>(
-      `UPDATE work_reports
-       SET deleted_at = now(), deleted_by_user_id = $2, updated_at = now()
-       WHERE id = $1 AND deleted_at IS NULL AND created_by_user_id = $2
-       RETURNING id`,
-      [reportId, session.userId]
-    );
-    if (res.rows.length === 0) {
-      return {
-        ok: false,
-        error:
-          "Raport nie istnieje, jest już usunięty albo nie jesteś jego autorem.",
-      };
-    }
-    return { ok: true };
+    return await withTransaction(async (tx) => {
+      const current = await tx.query<{ created_by_user_id: number }>(
+        `SELECT created_by_user_id FROM work_reports WHERE id = $1`,
+        [reportId]
+      );
+      if (current.rows.length === 0) {
+        return { ok: false as const, error: "Raport nie istnieje." };
+      }
+      if (current.rows[0].created_by_user_id !== session.userId) {
+        return {
+          ok: false as const,
+          error: "Tylko autor raportu może go usunąć.",
+        };
+      }
+
+      // Pozycje i przypisania first (FK bez CASCADE), potem sam raport.
+      await tx.query(`DELETE FROM report_materials WHERE work_report_id = $1`, [reportId]);
+      await tx.query(`DELETE FROM report_employees WHERE work_report_id = $1`, [reportId]);
+      await tx.query(`DELETE FROM work_reports WHERE id = $1`, [reportId]);
+
+      return { ok: true as const };
+    });
   } catch (err) {
     console.error("deleteReport:", err);
     return { ok: false, error: "Nie udało się usunąć raportu." };
-  }
-}
-
-/** Przywrócenie raportu: TYLKO szef (rola sprawdzana serwerowo). */
-export async function restoreReport(
-  reportId: number,
-  session: { role: "worker" | "boss"; userId: number }
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (session.role !== "boss") {
-    return { ok: false, error: "Tylko szef może przywracać raporty." };
-  }
-  if (!Number.isInteger(reportId) || reportId <= 0) {
-    return { ok: false, error: "Nieprawidłowy raport." };
-  }
-  try {
-    const res = await query<{ id: number }>(
-      `UPDATE work_reports
-       SET deleted_at = NULL, deleted_by_user_id = NULL, updated_at = now()
-       WHERE id = $1 AND deleted_at IS NOT NULL
-       RETURNING id`,
-      [reportId]
-    );
-    if (res.rows.length === 0) {
-      return { ok: false, error: "Raport nie istnieje albo nie jest usunięty." };
-    }
-    return { ok: true };
-  } catch (err) {
-    console.error("restoreReport:", err);
-    return { ok: false, error: "Nie udało się przywrócić raportu." };
   }
 }
 
@@ -625,7 +605,6 @@ export interface BossReportItem {
   description: string;
   employees: string[];
   author: string | null;
-  deleted: boolean;
 }
 
 export async function listBossLocations(): Promise<BossLocation[]> {
@@ -669,7 +648,7 @@ export async function listBossOrders(contactId: number): Promise<BossOrder[]> {
   return res.rows.map((r) => ({ ...r, reports_count: Number(r.reports_count) }));
 }
 
-/** Raporty zlecenia — w tym usunięte (szef widzi kosz w kontekście zlecenia). */
+/** Raporty zlecenia. */
 export async function listBossReports(orderId: number): Promise<BossReportItem[]> {
   const res = await query<{
     id: number;
@@ -677,7 +656,6 @@ export async function listBossReports(orderId: number): Promise<BossReportItem[]
     description: string;
     employees: string[] | null;
     author: string | null;
-    deleted: boolean;
   }>(
     `SELECT r.id,
             to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
@@ -686,18 +664,16 @@ export async function listBossReports(orderId: number): Promise<BossReportItem[]
              FROM report_employees re
              JOIN employees e ON e.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees,
-            u.email AS author,
-            (r.deleted_at IS NOT NULL) AS deleted
+            u.email AS author
      FROM work_reports r
      LEFT JOIN users u ON u.id = r.created_by_user_id
      WHERE r.order_id = $1
-     ORDER BY (r.deleted_at IS NOT NULL), r.work_date DESC, r.id DESC`,
+     ORDER BY r.work_date DESC, r.id DESC`,
     [orderId]
   );
   return res.rows.map((row) => ({
     ...row,
     employees: row.employees ?? [],
-    deleted: Boolean(row.deleted),
   }));
 }
 
@@ -713,7 +689,6 @@ export async function listUnassignedReports(): Promise<BossReportItem[]> {
     description: string;
     employees: string[] | null;
     author: string | null;
-    deleted: boolean;
   }>(
     `SELECT r.id,
             to_char(r.work_date, 'YYYY-MM-DD') AS work_date,
@@ -722,8 +697,7 @@ export async function listUnassignedReports(): Promise<BossReportItem[]> {
              FROM report_employees re
              JOIN employees e ON e.id = re.employee_id
              WHERE re.work_report_id = r.id) AS employees,
-            u.email AS author,
-            false AS deleted
+            u.email AS author
      FROM work_reports r
      JOIN orders o ON o.id = r.order_id
      LEFT JOIN users u ON u.id = r.created_by_user_id
@@ -734,6 +708,5 @@ export async function listUnassignedReports(): Promise<BossReportItem[]> {
   return res.rows.map((row) => ({
     ...row,
     employees: row.employees ?? [],
-    deleted: false,
   }));
 }

@@ -1,11 +1,12 @@
 import Link from "next/link";
 
-export type NavKey = "raporty" | "wszystkie" | "urlopy" | "zlecenia" | "materialy";
+export type NavKey = "raporty" | "wszystkie" | "urlopy" | "zlecenia" | "materialy" | "obiekty";
 
 export function MainNav({ active }: { active: NavKey }) {
   const items = [
     { key: "raporty", href: "/", label: "Raporty" },
     { key: "zlecenia", href: "/orders", label: "Zlecenia" },
+    { key: "obiekty", href: "/locations", label: "Obiekty" },
     { key: "materialy", href: "/materials", label: "Materiały" },
     { key: "urlopy", href: "/leaves", label: "Urlopy" },
   ] as const;

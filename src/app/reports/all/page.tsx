@@ -200,7 +200,7 @@ async function AllReportsContent({
     );
   }
 
-  // Poziom 4: raporty zlecenia (usunięte widoczne u szefa, oznaczone)
+  // Poziom 4: raporty zlecenia
   const reports = await listBossReports(orderId);
   return (
     <>
@@ -229,18 +229,11 @@ async function AllReportsContent({
           {reports.map((r) => (
             <li key={r.id}>
               <Link href={`/reports/${r.id}`} className="block">
-                <Card
-                  className={`py-4 ${r.deleted ? "opacity-60" : "transition-colors hover:bg-muted/50"}`}
-                >
+                <Card className="py-4 transition-colors hover:bg-muted/50">
                   <CardHeader className="pb-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <CardTitle className="text-base">
                         {dateFmt.format(new Date(r.work_date + "T00:00:00"))}
-                        {r.deleted && (
-                          <span className="ml-2 rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
-                            usunięty
-                          </span>
-                        )}
                       </CardTitle>
                       {r.employees.length > 0 && (
                         <CardDescription className="shrink-0">

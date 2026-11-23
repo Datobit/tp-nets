@@ -38,14 +38,19 @@ export interface OrderDefaults {
   order_number?: string;
   title?: string;
   location_id?: number;
+  location_name?: string;
   requested_by_contact_id?: number | null;
+  requested_by_name?: string | null;
+  reports_count?: number;
 }
 
 /**
  * Zlecenie: numer nadaje serwer; wymagane: obiekt, osoba zlecająca
  * (kontakty WYBRANEGO obiektu), tytuł. Jeden kontakt może mieć kilka
- * aktywnych zleceń. W edycji: pracownik nie zmieni obiektu/zlecającego,
- * gdy zlecenie ma raporty (blokada też po stronie API).
+ * aktywnych zleceń.
+ * Edycja: zmiana obiektu możliwa zawsze, ale gdy zlecenie MA raporty —
+ * tylko szef (blokada też po stronie API). Po zmianie obiektu poprzedni
+ * zlecający jest czyszczony i pokazują się kontakty nowego obiektu.
  */
 export default function OrderForm({
   locations,
@@ -73,7 +78,11 @@ export default function OrderForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Kontakty zależą od wybranego obiektu; przy zmianie obiektu reset wyboru.
+  const hasReports = (editing?.reports_count ?? 0) > 0;
+  const locationLocked = Boolean(editing?.id) && hasReports;
+
+  // Kontakty zależą od wybranego obiektu; przy zmianie obiektu reset wyboru
+  // (poprzedni zlecający nie przenosi się na nowy obiekt).
   const locationContacts = contacts.filter(
     (c) => c.location_id === Number(locationId)
   );
@@ -137,7 +146,9 @@ export default function OrderForm({
         </CardTitle>
         <CardDescription>
           {editing?.id
-            ? "Jeśli zlecenie ma raporty, obiekt i zlecającego zmienia tylko szef."
+            ? hasReports
+              ? "Zlecenie ma raporty — obiekt zmienia tylko szef."
+              : "Obiekt i zlecającego może zmienić każdy; kontakty zależą od obiektu."
             : "Numer zlecenia nadamy automatycznie. Obiekt i osoba zlecająca są wymagane."}
         </CardDescription>
       </CardHeader>
@@ -169,9 +180,9 @@ export default function OrderForm({
               value={locationId}
               onValueChange={(v) => {
                 setLocationId(v);
-                setContactId("");
+                setContactId(""); // zlecający czyszczony przy zmianie obiektu
               }}
-              disabled={Boolean(editing?.id)}
+              disabled={locationLocked}
             >
               <SelectTrigger id="location" className="w-full">
                 <SelectValue placeholder="Wybierz obiekt" />
@@ -184,6 +195,22 @@ export default function OrderForm({
                 ))}
               </SelectContent>
             </Select>
+            {locationLocked && (
+              <p className="text-xs text-muted-foreground">
+                Zlecenie ma raporty ({editing?.reports_count}) — zmiana obiektu
+                wymaga konta szefa.
+              </p>
+            )}
+            {editing?.id && !locationLocked && editing.location_name && (
+              <p className="text-xs text-muted-foreground">
+                Obecny obiekt: {editing.location_name}
+                {editing.requested_by_name
+                  ? ` · zlecający: ${editing.requested_by_name}`
+                  : ""}
+                {". "}Zmiana obiektu czyści zlecającego — wybierz kontakt
+                nowego obiektu.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">

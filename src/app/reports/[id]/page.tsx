@@ -5,7 +5,7 @@ import { notFound } from "next/navigation";
 import { getReportForSession } from "@/lib/reports";
 import { requireSession } from "@/lib/auth";
 import { query } from "@/lib/db";
-import { DeleteReportButton, RestoreReportButton } from "@/components/report-actions";
+import { DeleteReportButton } from "@/components/report-actions";
 import {
   Card,
   CardContent,
@@ -40,8 +40,6 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
   ]);
   if (meta.rows.length === 0) notFound();
   const isAuthor = meta.rows[0].created_by_user_id === session.userId;
-  const isDeleted = meta.rows[0].deleted_at !== null;
-  const isBoss = session.role === "boss";
 
   return (
     <>
@@ -49,11 +47,6 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
         <h1 className="text-2xl font-semibold tracking-tight">
           Protokół prac #{report.id}
         </h1>
-        {isDeleted && (
-          <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
-            usunięty
-          </span>
-        )}
       </div>
 
       <Card>
@@ -143,12 +136,12 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
         </CardContent>
       </Card>
 
-      {isAuthor && !isDeleted && (
+      {isAuthor && (
         <Card>
           <CardHeader>
             <CardTitle>Akcje</CardTitle>
             <CardDescription>
-              Jako autor możesz poprawić ten raport albo go usunąć.
+              Jako autor możesz poprawić ten raport albo go trwale usunąć.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -158,18 +151,6 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
               </Button>
             </div>
             <DeleteReportButton reportId={reportId} />
-          </CardContent>
-        </Card>
-      )}
-
-      {isBoss && isDeleted && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Raport usunięty</CardTitle>
-            <CardDescription>Możesz go przywrócić.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <RestoreReportButton reportId={reportId} />
           </CardContent>
         </Card>
       )}
