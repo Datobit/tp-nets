@@ -3,13 +3,15 @@ import { connection } from "next/server";
 import { listEmployeesForSession } from "@/lib/leaves";
 import { requireSession } from "@/lib/auth";
 import { MainNav } from "@/components/main-nav";
-import LeaveRequestForm from "@/components/leave-request-form";
+import LeaveDayPickerForm from "@/components/leave-request-form";
 
 async function NewLeaveForm() {
   await connection();
   const session = await requireSession();
   const employees = await listEmployeesForSession(session);
-  return <LeaveRequestForm employees={employees} boss={session.role === "boss"} />;
+  return (
+    <LeaveDayPickerForm employees={employees} boss={session.role === "boss"} />
+  );
 }
 
 export default function NewLeavePage() {

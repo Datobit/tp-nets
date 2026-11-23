@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,86 +26,119 @@ export interface LocationOption {
   address: string;
 }
 
+export interface ContactOption {
+  id: number;
+  location_id: number;
+  full_name: string;
+  phone: string | null;
+}
+
+export interface OrderDefaults {
+  id?: number;
+  order_number?: string;
+  title?: string;
+  location_id?: number;
+  requested_by_contact_id?: number | null;
+}
+
 /**
- * Tryb "inline" (z formularza raportu): zapis → powrót z wybranym
- * nowym zleceniem, bez utraty danych formularza raportu (router.back
- * + przekazanie id przez sessionStorage).
+ * Zlecenie: numer nadaje serwer; wymagane: obiekt, osoba zlecająca
+ * (kontakty WYBRANEGO obiektu), tytuł. Jeden kontakt może mieć kilka
+ * aktywnych zleceń. W edycji: pracownik nie zmieni obiektu/zlecającego,
+ * gdy zlecenie ma raporty (blokada też po stronie API).
  */
 export default function OrderForm({
-  inline = false,
   locations,
+  contacts,
+  editing,
 }: {
-  inline?: boolean;
   locations: LocationOption[];
+  contacts: ContactOption[];
+  editing?: OrderDefaults | null;
 }) {
   const router = useRouter();
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(editing?.title ?? "");
   const [locationId, setLocationId] = useState<string>(
-    locations[0] ? String(locations[0].id) : ""
+    editing?.location_id
+      ? String(editing.location_id)
+      : locations[0]
+        ? String(locations[0].id)
+        : ""
   );
-  const [newLocationMode, setNewLocationMode] = useState(false);
-  const [newLocationName, setNewLocationName] = useState("");
-  const [newLocationAddress, setNewLocationAddress] = useState("");
+  const [contactId, setContactId] = useState<string>(
+    editing?.requested_by_contact_id
+      ? String(editing.requested_by_contact_id)
+      : ""
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // Kontakty zależą od wybranego obiektu; przy zmianie obiektu reset wyboru.
+  const locationContacts = contacts.filter(
+    (c) => c.location_id === Number(locationId)
+  );
+  useEffect(() => {
+    if (
+      contactId &&
+      !locationContacts.some((c) => String(c.id) === contactId)
+    ) {
+      setContactId("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locationId]);
 
   async function handleSubmit(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault();
     if (saving) return;
     setError(null);
     if (!title.trim()) {
-      setError("Nazwa zlecenia jest wymagana.");
+      setError("Tytuł zlecenia jest wymagany.");
       return;
     }
-    if (newLocationMode && !newLocationName.trim()) {
-      setError("Podaj nazwę nowego obiektu.");
+    if (!contactId) {
+      setError("Wybierz osobę zlecającą z kontaktów obiektu.");
       return;
     }
     setSaving(true);
     try {
-      const res = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title,
-          location_id: newLocationMode ? null : Number(locationId),
-          new_location: newLocationMode
-            ? {
-                name: newLocationName,
-                address: newLocationAddress.trim() || null,
-              }
-            : null,
-        }),
-      });
+      const res = await fetch(
+        editing?.id ? `/api/orders/${editing.id}/edit` : "/api/orders",
+        {
+          method: editing?.id ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            location_id: Number(locationId),
+            requested_by_contact_id: Number(contactId),
+          }),
+        }
+      );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        setError(data?.error ?? "Nie udało się dodać zlecenia.");
+        setError(data?.error ?? "Nie udało się zapisać zlecenia.");
         return;
       }
-      if (inline) {
-        // przekaz nowego zlecenia do formularza raportu i powrót
-        sessionStorage.setItem("tp_nets_new_order", String(data.id));
-        router.refresh(); // odśwież RSC — nowy props orders po powrocie
-        router.back();
-      } else {
-        router.push("/orders");
-        router.refresh();
-      }
+      router.push("/orders");
+      router.refresh();
     } catch {
-      setError("Błąd połączenia — zlecenie nie zostało dodane.");
+      setError("Błąd połączenia — zlecenie nie zostało zapisane.");
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Card className={inline ? "w-full" : "w-full max-w-md"}>
+    <Card className="w-full max-w-md">
       <CardHeader>
-        <CardTitle>Nowe zlecenie</CardTitle>
+        <CardTitle>
+          {editing?.id
+            ? `Edycja zlecenia ${editing.order_number ?? ""}`
+            : "Nowe zlecenie"}
+        </CardTitle>
         <CardDescription>
-          {inline
-            ? "Zapisz i wróć do raportu z wybranym zleceniem."
-            : "Obiekt i adres dotyczą zlecenia; miejsce konkretnych robót ustala monter w raporcie."}
+          {editing?.id
+            ? "Jeśli zlecenie ma raporty, obiekt i zlecającego zmienia tylko szef."
+            : "Numer zlecenia nadamy automatycznie. Obiekt i osoba zlecająca są wymagane."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -118,11 +151,12 @@ export default function OrderForm({
               {error}
             </div>
           )}
+
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="title">Nazwa zlecenia</Label>
+            <Label htmlFor="title">Tytuł zlecenia</Label>
             <Input
               id="title"
-              placeholder="np. Wymiana oświetlenia hali C"
+              placeholder="np. Ładowarka przy wejściu nr 20"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={200}
@@ -131,72 +165,57 @@ export default function OrderForm({
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="location">Obiekt</Label>
-            {newLocationMode ? (
-              <div className="flex flex-col gap-2">
-                <Input
-                  id="location"
-                  placeholder="Nazwa obiektu (wymagana)"
-                  value={newLocationName}
-                  onChange={(e) => setNewLocationName(e.target.value)}
-                  maxLength={200}
-                />
-                <Input
-                  placeholder="Adres (opcjonalny)"
-                  value={newLocationAddress}
-                  onChange={(e) => setNewLocationAddress(e.target.value)}
-                  maxLength={300}
-                />
-                {locations.length > 0 && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setNewLocationMode(false)}
-                  >
-                    Wybierz z listy
-                  </Button>
-                )}
-              </div>
+            <Select
+              value={locationId}
+              onValueChange={(v) => {
+                setLocationId(v);
+                setContactId("");
+              }}
+              disabled={Boolean(editing?.id)}
+            >
+              <SelectTrigger id="location" className="w-full">
+                <SelectValue placeholder="Wybierz obiekt" />
+              </SelectTrigger>
+              <SelectContent>
+                {locations.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="contact">Osoba zlecająca (kontakt obiektu)</Label>
+            {locationContacts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Ten obiekt nie ma jeszcze kontaktów — poproś szefa o dodanie.
+              </p>
             ) : (
-              <div className="flex flex-col gap-2">
-                <Select value={locationId} onValueChange={setLocationId}>
-                  <SelectTrigger id="location" className="w-full">
-                    <SelectValue placeholder="Wybierz obiekt" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {locations.map((l) => (
-                      <SelectItem key={l.id} value={String(l.id)}>
-                        {l.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setNewLocationMode(true)}
-                >
-                  Nowy obiekt
-                </Button>
-              </div>
+              <Select value={contactId} onValueChange={setContactId}>
+                <SelectTrigger id="contact" className="w-full">
+                  <SelectValue placeholder="Wybierz osobę zlecającą" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locationContacts.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.full_name}
+                      {c.phone ? ` (${c.phone})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
-            <p className="text-xs text-muted-foreground">
-              {newLocationMode
-                ? "Obiekt zostanie dodany i przypisany do zlecenia."
-                : "Zlecenie trafia pod wybrany obiekt — bez cichego przypisania."}
-            </p>
           </div>
 
           <div className="flex gap-2">
-            <Button type="submit" className="flex-1" disabled={saving}>
-              {saving ? "Zapisywanie…" : "Dodaj zlecenie"}
+            <Button type="submit" className="flex-1" disabled={saving || !contactId}>
+              {saving ? "Zapisywanie…" : editing?.id ? "Zapisz zmiany" : "Dodaj zlecenie"}
             </Button>
-            {!inline && (
-              <Button type="button" variant="outline" asChild>
-                <a href="/orders">Anuluj</a>
-              </Button>
-            )}
+            <Button type="button" variant="outline" asChild>
+              <a href="/orders">Anuluj</a>
+            </Button>
           </div>
         </form>
       </CardContent>

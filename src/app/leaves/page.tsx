@@ -206,12 +206,21 @@ async function LeavesContent({
                       </span>
                     </div>
                     <CardDescription>
-                      {fmt(lr.start_date)} — {fmt(lr.end_date)} (daty włącznie)
+                      {lr.dates.length > 0
+                        ? `Dni: ${lr.dates.join(", ")}`
+                        : `${fmt(lr.start_date)} — ${fmt(lr.end_date)} (daty włącznie)`}
                     </CardDescription>
                   </CardHeader>
                   {lr.note && (
                     <CardContent>
                       <p className="text-sm text-foreground/80">{lr.note}</p>
+                    </CardContent>
+                  )}
+                  {lr.status === "pending" && (
+                    <CardContent>
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={`/leaves/${lr.id}/edit`}>Edytuj</Link>
+                      </Button>
                     </CardContent>
                   )}
                 </Card>

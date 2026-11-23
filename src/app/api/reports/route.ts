@@ -49,6 +49,7 @@ export async function POST(req: Request) {
           return {
             material_id: Number(mat.material_id),
             used_qty: Number(mat.used_qty),
+            unit: typeof mat.unit === "string" ? mat.unit : null,
           };
         })
       : [];

@@ -42,7 +42,12 @@ async function OrdersList() {
           <Card className="py-4">
             <CardHeader className="pb-2">
               <div className="flex items-baseline justify-between gap-2">
-                <CardTitle className="text-base">{o.title}</CardTitle>
+                <CardTitle className="text-base">
+                  <span className="tabular-nums text-muted-foreground">
+                    {o.order_number}
+                  </span>{" "}
+                  {o.title}
+                </CardTitle>
                 <span
                   className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
                     o.status === "done"
@@ -54,15 +59,20 @@ async function OrdersList() {
                 </span>
               </div>
               <CardDescription>
-                {o.location_name} · {o.location_address}
-                {o.department ? ` · ${o.department}` : ""}
+                {o.location_name} · zlecający: {o.requested_by ?? "—"}
+                {o.reports_count > 0 ? ` · raporty: ${o.reports_count}` : ""}
               </CardDescription>
             </CardHeader>
-            {session.role === "boss" && o.status !== "done" && (
-              <CardContent>
-                <BossOrderActions orderId={o.id} currentTitle={o.title} />
-              </CardContent>
-            )}
+            <CardContent>
+              <div className="flex gap-2">
+                <Button asChild variant="outline" size="sm">
+                  <a href={`/orders/${o.id}/edit`}>Edytuj</a>
+                </Button>
+                {session.role === "boss" && o.status !== "done" && (
+                  <BossOrderActions orderId={o.id} currentTitle={o.title} />
+                )}
+              </div>
+            </CardContent>
           </Card>
         </li>
       ))}

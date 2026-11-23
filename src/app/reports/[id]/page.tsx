@@ -4,6 +4,8 @@ import { connection } from "next/server";
 import { notFound } from "next/navigation";
 import { getReportForSession } from "@/lib/reports";
 import { requireSession } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { DeleteReportButton, RestoreReportButton } from "@/components/report-actions";
 import {
   Card,
   CardContent,
@@ -11,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 const dateFmt = new Intl.DateTimeFormat("pl-PL", {
   day: "2-digit",
@@ -27,12 +30,30 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
   const report = await getReportForSession(reportId, session);
   if (!report) notFound();
 
+  // Stan raportu i uprawnienia akcji: autor edytuje/usuwa swoje; szef
+  // przywraca usunięte. Monter dopisany do raportu — tylko podgląd.
+  const meta = await query<{
+    created_by_user_id: number;
+    deleted_at: Date | null;
+  }>(`SELECT created_by_user_id, deleted_at FROM work_reports WHERE id = $1`, [
+    reportId,
+  ]);
+  if (meta.rows.length === 0) notFound();
+  const isAuthor = meta.rows[0].created_by_user_id === session.userId;
+  const isDeleted = meta.rows[0].deleted_at !== null;
+  const isBoss = session.role === "boss";
+
   return (
     <>
       <div className="flex items-baseline justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">
           Protokół prac #{report.id}
         </h1>
+        {isDeleted && (
+          <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs text-destructive">
+            usunięty
+          </span>
+        )}
       </div>
 
       <Card>
@@ -121,6 +142,37 @@ async function ReportDetails({ params }: { params: Promise<{ id: string }> }) {
           )}
         </CardContent>
       </Card>
+
+      {isAuthor && !isDeleted && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Akcje</CardTitle>
+            <CardDescription>
+              Jako autor możesz poprawić ten raport albo go usunąć.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="flex gap-2">
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/reports/${reportId}/edit`}>Edytuj raport</Link>
+              </Button>
+            </div>
+            <DeleteReportButton reportId={reportId} />
+          </CardContent>
+        </Card>
+      )}
+
+      {isBoss && isDeleted && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Raport usunięty</CardTitle>
+            <CardDescription>Możesz go przywrócić.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RestoreReportButton reportId={reportId} />
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }
